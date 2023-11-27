@@ -1,9 +1,11 @@
 from django.db import models
 from wagtail import blocks
 from wagtail.admin.panels import FieldPanel
+from wagtail.documents.blocks import DocumentChooserBlock
 from wagtail.fields import RichTextField, StreamField
 from wagtail.images.blocks import ImageChooserBlock
 from wagtail.models import Page, TranslatableMixin
+from wagtail.snippets.blocks import SnippetChooserBlock
 from wagtail.snippets.models import register_snippet
 
 
@@ -38,11 +40,20 @@ class BlogPostPage(Page):
         [
             ("heading", blocks.CharBlock()),
             ("paragraph", blocks.RichTextBlock()),
-            ("image", ImageBlock()),
             ("stream", blocks.StreamBlock([("paragraph", blocks.CharBlock())])),
+            ("stream_nested", blocks.StreamBlock([("stream", blocks.StreamBlock([("paragraph", blocks.CharBlock())]))])),
             ("list", blocks.ListBlock(blocks.CharBlock())),
+            ("list_nested", blocks.ListBlock(blocks.ListBlock(blocks.CharBlock()))),
             ("struct", blocks.StructBlock([("paragraph", blocks.CharBlock()), ("image", ImageChooserBlock())])),
+            # Not sure why anyone would want to nest StructBlocks, but it is possible.
+            # ("struct_nested", blocks.StructBlock([("struct", blocks.StructBlock([("paragraph", blocks.CharBlock()), ("image", ImageChooserBlock())]))])),
+            ("image_struct", ImageBlock()),
             ("raw", blocks.RawHTMLBlock()),
+            ("blockquoteblock", blocks.BlockQuoteBlock()),
+            ("page", blocks.PageChooserBlock()),
+            ("document", DocumentChooserBlock()),
+            ("image_chooser", ImageChooserBlock()),
+            ("snippet", SnippetChooserBlock(BlogCategory)),
         ],
         use_json_field=True,
     )

@@ -32,22 +32,32 @@ def rstrip_keep(text: str) -> (str, str):
     return new_text, suffix
 
 
+class BlockItem:
+    """Block item, helper class to pass block and value around."""
+
+    def __init__(self, block, value):
+        self.block = block
+        self.value = value
+
+
 class Translator:
     source_language_code: str
     target_language_code: str
 
-    def __init__(self, source_language_code, target_language_code):
+    def __init__(self, source_language_code: str, target_language_code: str) -> None:
         self.source_language_code = source_language_code
         self.target_language_code = target_language_code
 
     def translate(self, source_string: str) -> str:
         """
         Translate, a function that does the actual translation.
-        This will probably be replaced by a call to a translation service.
+        This will be replaced by a call to a translation service.
 
-        ROT13 is used to demonstrate this POC.
+        ROT13 is its own inverse. Because there are 26 letters (2×13) in the
+        Latin alphabet, applying ROT13 to a piece of text twice will give the
+        original text.
         """
-        # Rot13 does not need this information,
+        # Rot13 does not need the language codes,
         # but a real translation service would.
         self.source_language_code  # noqa
         self.target_language_code  # noqa
@@ -71,6 +81,17 @@ class Translator:
         string, right_whitespace = rstrip_keep(string)
         translation = self.translate(string)
         return f"{left_whitespace}{translation}{right_whitespace}"
+
+
+    def translate_attributes(self, soup):
+        """
+        Translate attributes, title and alt.
+        """
+        for tag in soup.find_all():
+            if tag.has_attr('title'):
+                tag['title'] = self.translate(tag['title'])
+            if tag.has_attr('alt'):
+                tag['alt'] = self.translate(tag['alt'])
 
     def translate_html(self, html: str) -> str:
         """
@@ -108,53 +129,51 @@ class Translator:
 
         walk(soup)
 
-        # loop through all tags and translate title and alt attributes.
-        for tag in soup.find_all():
-            if tag.has_attr('title'):
-                tag['title'] = self.translate(tag['title'])
-            if tag.has_attr('alt'):
-                tag['alt'] = self.translate(tag['alt'])
-
+        self.translate_attributes(soup)
         return str(soup)
 
-
-    # def handle_block(block_type, block_value, raw_value=None):
-    #     Need to check if the app is installed before importing EmbedBlock
-    #     See: https://github.com/wagtail/wagtail-localize/issues/309
-    #     if apps.is_installed("wagtail.embeds"):
-    #         from wagtail.embeds.blocks import EmbedBlock
-    #
-    #         if isinstance(block_type, EmbedBlock):
-    #             if self.include_overridables:
-    #                 return [OverridableSegmentValue("", block_value.url)]
-    #             else:
-    #                 return []
-
     def translate_struct_block(self, item):
-        """"""
-        # for idx, obj in enumerate(item.bound_blocks):
-        #     print(idx, obj, item.bound_blocks[obj].value)
-        return item
+        """
+        Translate StructBlock,
+
+        Iterates over the child blocks, and calls translate_block on them.
+        Uses a helper class `BlockItem` to pass the block and value around.
+        """
+        for block_type, block in item.block.child_blocks.items():
+            block_item = BlockItem(block=block, value=item.value[block_type])
+            self.translate_block(block_item)
+            item.value[block_type] = block_item.value
 
     def translate_stream_block(self, item):
-        # for index, block in enumerate(item):
-        #     raw_data = stream_block.raw_data[index]
-        #     handle_block(
-        #         block.block, block.value, raw_value=raw_data
-        #     )
-        return item  # TODO, implement
+        """Translate StreamBlock,
+
+        Slightly redundant, as it only calls translate_blocks with the value.
+        But, this keeps the same structure for all iterable block types.
+        It allows for customization by overriding this method.
+        """
+        self.translate_blocks(item.value)
 
     def translate_list_block(self, item):
-        return item  # TODO, implement
+        """Translate ListBlock,
+
+        Iterates over the values, and calls translate_block on them.
+        Uses a helper class `BlockItem` to pass the block and value around.
+        """
+        for idx, value in enumerate(item.value):
+            block_item = BlockItem(block=item.block.child_block, value=value)
+            self.translate_block(block_item)
+            item.value[idx] = block_item.value
 
     def translate_block(self, item) -> None:
         """
-        Translate (a streamfield) block,
+        Translate block,
 
         Receives a block, discovers its type, and translates its value.
-        Sets the value on the block, returns None.
+        Sets the value on the block.
 
-        Skips if the field is not translatable.
+        Skips the block if it is not translatable. For example, a URLBlock.
+
+        Returns None.
         """
         if isinstance(item.block, (blocks.CharBlock, blocks.TextBlock)):
             item.value = self.translate(item.value)
@@ -165,11 +184,20 @@ class Translator:
         elif isinstance(item.block, blocks.StructBlock):
             item.value = self.translate_struct_block(item)
         elif isinstance(item.block, blocks.BlockQuoteBlock):
-            ...  # TODO, implement
+            item.value = self.translate(item.value)
         elif isinstance(item.block, blocks.ChooserBlock):
             ...  # TODO, implement
         elif isinstance(item.block, blocks.PageChooserBlock):
             ...  # TODO, implement
+
+        # And to recurse, we need to handle iterables.
+        elif isinstance(item.block, blocks.StructBlock):
+            self.translate_struct_block(item)
+        elif isinstance(item.block, blocks.StreamBlock):
+            self.translate_stream_block(item)
+        elif isinstance(item.block, blocks.ListBlock):
+            self.translate_list_block(item)
+
         else:
             # All other blocks are skipped. Like:
             # URLBlock, BooleanBlock, DateBlock, TimeBlock, DateTimeBlock,
@@ -179,15 +207,24 @@ class Translator:
 
     def translate_blocks(self, items):
         """
-        Translate blocks,
+        Translate blocks, iterate over the items.
 
-        Iterate over the StreamField/Streamblock/Listblock/StuctBlock.
+        Expects the item to be an object with block and value attributes.
+        Where `block` is any of the wagtail blocks, and `value` the value
+        of that block.
 
-        Recurse if Streamblock/Listblock/StuctBlock,
-        or translate the block if it is a leaf.
+        Recurse if the block is an iterable (Streamblock, Listblock, or
+        StuctBlock). Recurse takes a de-tour, as it calls a specific
+        method for each iterable block type. These specific methods will
+        iterate and prepare the data, and call translate_block, which will
+        call this method if the block is an iterable block.
 
-        Recurse is indirect, as it calls a specific method for each block type.
-        The specific method will prep the data and call this method to recurse.
+        The whole structure is slightly convoluted, but each iterable block
+        has its own needs, and this way of working allows to tailor to the needs
+        of each block type.
+
+        A method per block type also allows for fine-grained customizations
+        by overriding these methods.
         """
         for item in items:
             if isinstance(item.block, blocks.StructBlock):
@@ -205,9 +242,11 @@ class Translator:
         """
         Translate object,
 
-        Translate an object. Returns the target object.
+        Translate a source_obj (model instance).
+        Returns the target_obj.
 
-        Note, does not save the target object. This is left to the caller.
+        Note, does not save the target_obj. This is intentional,
+        as it allows for greater flexibility.
         """
         for field in get_translatable_fields(target_obj.__class__):
             src = getattr(source_obj, field.name)

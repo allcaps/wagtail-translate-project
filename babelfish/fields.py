@@ -35,8 +35,14 @@ def get_translatable_fields(model):
         if not field.editable:
             continue
 
+        # TODO, figure out how to handle slug fields.
+        # They might be used as identifiers and probably not be translated.
+        # However, a Page.slug is used in the URL, and should be translated.
+        if isinstance(field, models.SlugField):
+            continue
+
         # Ignore many to many fields (not supported yet)
-        # TODO: Add support for these
+        # TODO: Add support for many to many fields.
         if isinstance(field, models.ManyToManyField):
             continue
 
