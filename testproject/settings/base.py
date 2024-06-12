@@ -24,8 +24,8 @@ BASE_DIR = os.path.dirname(PROJECT_DIR)
 # Application definition
 
 INSTALLED_APPS = [
-    "home",
     "babelfish.apps.BabelfishConfig",
+    "home",
     "wagtail.locales",
     "wagtail.contrib.simple_translation",
     "wagtail.contrib.forms",

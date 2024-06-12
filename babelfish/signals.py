@@ -1,41 +1,47 @@
-from wagtail.actions.copy_for_translation import copy_for_translation_done
 from django.dispatch import receiver
 from wagtail.models import Page, TranslatableMixin
-from .translate import Translator
+from .translate import Translator, LLAMA2Translator
+import django.dispatch
+
+copy_for_translation_done = django.dispatch.Signal()
 
 
 @receiver(copy_for_translation_done)
-def actual_translation(sender, source, target, **kwargs):
+def actual_translation(sender, source_obj, target_obj, **kwargs):
     """
-    Actual translation,
+    Perform actual translation.
 
-    Wagtail will trigger the copy_for_translation_done signal,
-    And this signal handler will translate the contents.
+    Wagtail triggers the copy_for_translation_done signal,
+    and this signal handler translates the contents.
 
-    The object must be a subclass of TranslatableMixin.
+    The source_obj must be a subclass of TranslatableMixin.
 
-    Having a signal handler allows tailoring the behavior. For example,
-    - Subclass Translator and override methods to tailor the behavior.
-    - Pages can be draft (to be reviewed)
-        or published (to be seen by the public).
-    - Trigger a workflow
-    - Post-process the data
+    Integrators are expected to define their own signal receiver.
+    This receiver allows easy customization of behaviors:
+
+    - A custom Translator class can be specified.
+    - Pages can be saved as drafts (to be reviewed)
+      or published (directly visible to the public).
+    - Custom workflows can be triggered.
+    - Data can be post-processed.
+    - And more ...
     """
-    if not issubclass(target.__class__, TranslatableMixin):
+
+    if not issubclass(target_obj.__class__, TranslatableMixin):
         raise Exception(
             "Object must be a subclass of TranslatableMixin. "
-            f"Got {type(target)}."
+            f"Got {type(target_obj)}."
         )
 
     # Get the source and target language codes
-    source_language_code = source.locale.language_code
-    target_language_code = target.locale.language_code
+    source_language_code = source_obj.locale.language_code
+    target_language_code = target_obj.locale.language_code
 
     # Initialize the translator, and translate.
     translator = Translator(source_language_code, target_language_code)
-    translated_obj = translator.translate_obj(source, target)
+    translated_obj = translator.translate_obj(source_obj, target_obj)
 
-    # Differentiate between page and regular Django model.
+    # Differentiate between regular Django model and Wagtail Page.
     # - Page instances have `save_revision` and `publish` methods.
     # - Regular Django model (aka Wagtail Snippet) need to be saved.
     if isinstance(translated_obj, Page):
@@ -45,3 +51,5 @@ def actual_translation(sender, source, target, **kwargs):
         translated_obj.save_revision().publish()
     else:
         translated_obj.save()
+
+

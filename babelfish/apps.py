@@ -6,4 +6,5 @@ class BabelfishConfig(AppConfig):
     name = "babelfish"
 
     def ready(self):
+        # We patch Wagtail to inject the copy_for_translation_done signal.
         from . import signals  # noqa
